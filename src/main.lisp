@@ -19,12 +19,13 @@
 (defparameter +feed-room-id+ "!ShuXi5ohrPUtKHkrNO:matrix.nullring.xyz")
 (defparameter +feed-cache-path+ #P"./nullbot_cache.sexp")
 (defparameter +feed-sleep-minutes+ 1)
+(defparameter +weather-vancouver+ )
 
 (defparameter +prefix+ "$")
 
-(defun get-temp
-    (&aux
-       (endpoint "https://api.weather.gc.ca/collections/swob-realtime/items?f=json&lang=en&url=CYVR&sortby=-date_tm-value&limit=1&properties=date_tm-value,air_temp,air_temp-uom,air_temp-qa")
+(defun get-temp (weather-station
+    &aux
+       (endpoint (format nil "https://api.weather.gc.ca/collections/swob-realtime/items?f=json&lang=en&url=C~A&sortby=-date_tm-value&limit=1&properties=date_tm-value,air_temp,air_temp-uom,air_temp-qa" weather-station))
        (data (jzon:parse (dex:get endpoint))))
   (hash-get (aref (gethash "features" data) 0) '("properties" "air_temp")))
 
@@ -41,7 +42,7 @@
       ((string= command "$help")
        (mapi:sendmsg *bot* room-id "Unlike some other bots, I'm nice :3"))
       ((string= command "$weather")
-       (mapi:sendmsg *bot* room-id (format nil "It's ~a degrees in Vancouver" (get-temp)))))))
+       (mapi:sendmsg *bot* room-id (format nil "It's ~a degrees in Vancouver~%It's ~a degrees in Victoria" (get-temp "YVR") (get-temp "YYJ")))))))
 
 (defmethod mapi:on-event
     ((obj nullbot) event room-id
