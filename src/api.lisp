@@ -1,4 +1,6 @@
-;; readers beware: this is currently a very barebones library
+;; readers beware: this is currently a very barebones (and amateurish) library
+;;
+;; In the future it might be packaged into its own thing
 
 (defpackage nullbot/matrix-api
   (:use #:cl
@@ -17,10 +19,15 @@
    #:sendmsg
    #:on-event
    #:start
-   #:stop))
+   #:stop
+   #:whoami
+   #:request
+   #:join
+   #:leave
+   #:room-id))
 (in-package #:nullbot/matrix-api)
 
-(defclass matrix-user ()
+(defclass matrix-client ()
   ((homeserver
     :type string
     :initarg :homeserver
@@ -45,11 +52,30 @@
     :initform (bt2:make-lock)
     :reader lock)))
 
-(defclass matrix-bot (matrix-user) ()
+;; these are not perfect functions by any means but matrix has
+;; many different room versions with different formats
+;; this is what the official matrix-bot-sdk does as well
+(defun room-id-p (object)
+  (and (stringp object)
+       (> (length object) 0)
+       (equal (aref object 0) #\!)))
+
+(defun room-alias-p (object)
+  (and (stringp object)
+       (> (length object) 0)
+       (equal (aref object 0) #\#)))
+
+(deftype room-id ()
+  '(and string (satisfies room-id-p)))
+
+(deftype room-alias ()
+  '(and string (satisfies room-alias-p)))
+
+(defclass matrix-bot (matrix-client) ()
   (:default-initargs :name "matrix-bot"))
 
 (defgeneric request (obj endpoint &rest rest)
-  (:method ((obj matrix-user) endpoint &rest rest &aux (headers))
+  (:method ((obj matrix-client) endpoint &rest rest &aux (headers))
     (declare (type string endpoint))
 
     (when (>= (length rest) 3) (setf headers (car (last rest))))
@@ -63,7 +89,7 @@
                                  :verbose nil))))
 
 (defgeneric on-event (obj event room-id)
-  (:method ((obj matrix-user) event room-id)
+  (:method ((obj matrix-client) event room-id)
     (format t "Event Received: ~a~%" event)))
 
 (defun randint (start end)
@@ -75,7 +101,7 @@
   (fs:octets-to-string arr))
 
 (defgeneric sendmsg (obj room-id content)
-  (:method ((obj matrix-user) room-id content
+  (:method ((obj matrix-client) room-id content
             &aux
               (msg (make-hash-table :test #'equal))
               (encoded-room-id (quri:url-encode room-id))
@@ -89,8 +115,30 @@
              msg
              '(("Content-Type" . "application/json")))))
 
+(defgeneric whoami (obj)
+  (:method ((obj matrix-client))
+    (request obj "/account/whoami" :get)))
+
+(defgeneric directory-room (obj room-alias)
+  (:method ((obj matrix-client) room-alias)
+    (check-type room-alias room-alias)
+    ))
+
+(defgeneric join (obj room)
+  (:method ((obj matrix-client) room)
+    (request obj (format nil "/rooms/~a/join"
+                         (quri:url-encode room))
+             :get)))
+
+(defgeneric leave (obj room-id)
+  (:method ((obj matrix-client) room-id)
+    (check-type room-id room-id)
+    (request obj (format nil "/rooms/~a/leave"
+                         (quri:url-encode room-id))
+             :post)))
+
 (defgeneric get-events (obj rooms-join room-id)
-  (:method ((obj matrix-user) rooms-join room-id
+  (:method ((obj matrix-client) rooms-join room-id
             &aux
               (room-table (gethash room-id rooms-join))
               (events
@@ -100,23 +148,23 @@
         (on-event obj event room-id)))))
 
 (defgeneric start (obj)
-  (:method-combination progn)
-  (:method ((obj matrix-user))
-    (setf (listening obj) t)
-    (bt2:make-thread (lambda (&aux
-                                (since)
-                                (sync-route "/sync?timeout=30000"))
-                       (loop while (bt2:with-lock-held ((lock obj)) (listening obj)) do
-                         (when since
-                           (setf sync-route (format nil "/sync?timeout=30000&since=~a" since)))
-                         (let* ((response (request obj sync-route :get))
-                                (rooms-join (hash-get response '("rooms" "join"))))
-                           (when rooms-join (loop for room-id being each hash-key of rooms-join
-                                                  do (when since (get-events obj rooms-join room-id))))
-                           (setf since (gethash "next_batch" response))))
-                       (format t "Shutting down...~%"))
-                     :name (format nil "~a Poll Thread" (name obj)))))
+  (:method ((obj matrix-client))
+    (unless (listening obj)
+      (setf (listening obj) t)
+      (bt2:make-thread (lambda (&aux
+                                  (since)
+                                  (sync-route "/sync?timeout=30000"))
+                         (loop while (bt2:with-lock-held ((lock obj)) (listening obj)) do
+                           (when since
+                             (setf sync-route (format nil "/sync?timeout=30000&since=~a" since)))
+                           (let* ((response (request obj sync-route :get))
+                                  (rooms-join (hash-get response '("rooms" "join"))))
+                             (when rooms-join (loop for room-id being each hash-key of rooms-join
+                                                    do (when since (get-events obj rooms-join room-id))))
+                             (setf since (gethash "next_batch" response))))
+                         (format t "Shutting down...~%"))
+                       :name (format nil "~a Poll Thread" (name obj))))))
 
 (defgeneric stop (obj)
-  (:method ((obj matrix-user))
+  (:method ((obj matrix-client))
     (bt2:with-lock-held ((lock obj)) (setf (listening obj) nil))))

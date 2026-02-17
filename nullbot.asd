@@ -8,7 +8,8 @@
                :cl-hash-util
                :quri
                :flexi-streams
-               :split-sequence)
+               :split-sequence
+               :xmls)
   :components ((:module "src"
                 :components
                 ((:file "api")
