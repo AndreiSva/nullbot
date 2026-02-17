@@ -1,5 +1,7 @@
-* Matrix-Bot 
+* Matrix-Bot
 
-** Usage
-
-** Installation
+This is a bot I made for me and my friends' [[https://matrix.to/#/!ShuXi5ohrPUtKHkrNO:matrix.nullring.xyz?via=matrix.nullring.xyz&via=matrix.org&via=rm-r.org][Matrix community]]. It's made in
+Common Lisp because that is my currently favourite language, even if I am not
+the best at it yet. This bot also includes a thin matrix API library which is
+NOT ready for production use but which I might make available as a separate ASDF
+system later on as it matures and maybe put it on the Quicklisp dist.
