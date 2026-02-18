@@ -1,0 +1,13 @@
+* mapi
+
+mapi is a thin library around the Matrix client-server API. With it you can
+create your own clients or bots that talk throught he Matrix API.
+
+** Current State
+
+The library is not finished and not production ready. It lacks proper
+documentation and a stable API. It also lacks support for most of the Matrix
+specification besides the bare minimum.
+
+That being said, most of the important logic can be read in `core.lisp` and maps
+fairly well to what you would expect from standard matrix bot sdk.

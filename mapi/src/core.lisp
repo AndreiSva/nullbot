@@ -48,6 +48,18 @@
   (:default-initargs :name "matrix-bot"))
 
 (defgeneric request (obj endpoint &rest rest)
+  (:documentation
+   "Make an http request to a Matrix homeserver
+
+Syntax: (REQUEST obj endpoint METHOD data headers)
+
+`endpoint` is a string path containing the matrix endpoint WITHOUT the protocol,
+           hostname, and /_matrix/client/v3
+`METHOD` is a symbol (e.g :get, :post, :put) that represents the HTTP method to be used
+`data` is a hash table, which will be sent as json
+`headers` is an alist containing additional headers to be sent.
+
+Usually with :post or :put you want to send the application/json content-type")
   (:method ((obj matrix-client) endpoint &rest rest &aux (headers))
     (declare (type string endpoint))
 
@@ -62,14 +74,26 @@
                                  :verbose nil))))
 
 (defgeneric on-event (obj event room-id)
+  (:documentation
+   "Method that triggers every time an event is received via /sync.
+
+Does not run for the first call to /sync.
+
+You can use this to build your own architecture for listening for events.")
   (:method ((obj matrix-client) event room-id)
     (format t "Event Received: ~a~%" event)))
 
 (defgeneric whoami (obj)
+  (:documentation
+   "Run a /_matrix/client/v3/account/whoami request, returning the resulting hash table")
   (:method ((obj matrix-client))
     (request obj "/account/whoami" :get)))
 
 (defgeneric directory-room (obj room-alias)
+  (:documentation
+   "Run a /_matrix/client/v3/directory/room request, returning the resulting hash table
+
+This can be used to map a room alias to an ID, or get a list of homeservers that have the specific room.")
   (:method ((obj matrix-client) room-alias)
     (check-type room-alias room-alias)
     (request obj
@@ -78,6 +102,8 @@
              :get)))
 
 (defgeneric join (obj room)
+  (:documentation)
+  (:document)
   (:method ((obj matrix-client) room)
     (request obj (format nil "/join/~a"
                          (quri:url-encode room))
