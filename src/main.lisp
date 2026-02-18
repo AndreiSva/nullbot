@@ -3,9 +3,10 @@
         #:cl-hash-util)
   (:local-nicknames
    (:jzon :com.inuoe.jzon)
-   (:mapi :nullbot/matrix-api)
+   (:mapi :org.rm-r.mapi)
    (:sseq :split-sequence)
    (:dex :dexador))
+  (:import-from #:org.rm-r.mapi.util #:sendmsg)
   (:export
    #:start))
 (in-package #:nullbot)
@@ -19,7 +20,6 @@
 (defparameter +feed-room-id+ "!ShuXi5ohrPUtKHkrNO:matrix.nullring.xyz")
 (defparameter +feed-cache-path+ #P"./nullbot_cache.sexp")
 (defparameter +feed-sleep-minutes+ 1)
-(defparameter +weather-vancouver+ )
 
 (defparameter +prefix+ "$")
 
@@ -40,9 +40,9 @@
   (when (and (> (length body) 0) (equal (aref (car split-body) 0) #\$))
     (cond
       ((string= command "$help")
-       (mapi:sendmsg *bot* room-id "Unlike some other bots, I'm nice :3"))
+       (sendmsg *bot* room-id "Unlike some other bots, I'm nice :3"))
       ((string= command "$weather")
-       (mapi:sendmsg *bot* room-id (format nil "It's ~a degrees in Vancouver~%It's ~a degrees in Victoria" (get-temp "YVR") (get-temp "YYJ")))))))
+       (sendmsg *bot* room-id (format nil "It's ~a degrees in Vancouver~%It's ~a degrees in Victoria" (get-temp "YVR") (get-temp "YYJ")))))))
 
 (defmethod mapi:on-event
     ((obj nullbot) event room-id
@@ -57,7 +57,7 @@
   (car (xmls:node-children obj)))
 
 (defun node-attr (obj name)
-  (second (assoc name (xmls:node-attrs obj) :test #'string=)))
+  (cdr (assoc name (xmls:node-attrs obj) :test #'string=)))
 
 ;; TODO: make this into a generic f-n maybe and also make it not dumb
 (defun get-node-by-name (obj name)
@@ -68,7 +68,7 @@
           return child))
 
 (defun send-entry (entry)
-  (mapi:sendmsg
+  (sendmsg
    *bot*
    +feed-room-id+
    (format nil "New message on mailing list!~%Title: ~a~%From: ~a~%Link: ~a~%"

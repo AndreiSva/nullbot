@@ -1,31 +1,4 @@
-;; readers beware: this is currently a very barebones (and amateurish) library
-;;
-;; In the future it might be packaged into its own thing
-
-(defpackage nullbot/matrix-api
-  (:use #:cl
-        #:cl-hash-util)
-  (:local-nicknames
-   (:jzon :com.inuoe.jzon)
-   (:fs :flexi-streams))
-  (:export
-   #:matrix-user
-   #:homeserver
-   #:name
-   #:listening
-   #:token
-   #:lock
-   #:matrix-bot
-   #:sendmsg
-   #:on-event
-   #:start
-   #:stop
-   #:whoami
-   #:request
-   #:join
-   #:leave
-   #:room-id))
-(in-package #:nullbot/matrix-api)
+(in-package #:org.rm-r.mapi)
 
 (defclass matrix-client ()
   ((homeserver
@@ -92,29 +65,6 @@
   (:method ((obj matrix-client) event room-id)
     (format t "Event Received: ~a~%" event)))
 
-(defun randint (start end)
-  (+ start (random (+ 1 (- end start)))))
-
-(defun rand-string (len &aux (arr (make-array len)))
-  (loop for i from 0 below len do
-    (setf (aref arr i) (randint 65 90)))
-  (fs:octets-to-string arr))
-
-(defgeneric sendmsg (obj room-id content)
-  (:method ((obj matrix-client) room-id content
-            &aux
-              (msg (make-hash-table :test #'equal))
-              (encoded-room-id (quri:url-encode room-id))
-              (unique-str (rand-string 20)))
-    (setf (gethash "msgtype" msg) "m.text")
-    (setf (gethash "body" msg) content)
-    (request obj (format nil "/rooms/~a/send/m.room.message/~a"
-                         encoded-room-id
-                         unique-str)
-             :put
-             msg
-             '(("Content-Type" . "application/json")))))
-
 (defgeneric whoami (obj)
   (:method ((obj matrix-client))
     (request obj "/account/whoami" :get)))
@@ -122,12 +72,30 @@
 (defgeneric directory-room (obj room-alias)
   (:method ((obj matrix-client) room-alias)
     (check-type room-alias room-alias)
-    ))
+    (request obj
+             (format nil "/directory/room/~a"
+                     (quri:url-encode room-alias))
+             :get)))
 
 (defgeneric join (obj room)
   (:method ((obj matrix-client) room)
-    (request obj (format nil "/rooms/~a/join"
+    (request obj (format nil "/join/~a"
                          (quri:url-encode room))
+             :post
+             (make-hash-table)
+             '(("Content-Type" . "application/json")))))
+
+(defgeneric sync (obj &key timeout since)
+  (:method ((obj matrix-client) &key timeout since
+            &aux (params))
+    (check-type timeout integer)
+    (check-type since integer)
+    (when timeout
+      (push '("timeout" . timeout) params))
+    (when since
+      (push '("since" . since) params))
+    (request obj (format nil "/sync?~a"
+                         (quri:url-encode-params params))
              :get)))
 
 (defgeneric leave (obj room-id)
@@ -153,10 +121,12 @@
       (setf (listening obj) t)
       (bt2:make-thread (lambda (&aux
                                   (since)
-                                  (sync-route "/sync?timeout=30000"))
+                                  ;; TODO: support a configurable timeout
+                                  (timeout 30000)
+                                  (sync-route (format nil "/sync?timeout=~a" timeout)))
                          (loop while (bt2:with-lock-held ((lock obj)) (listening obj)) do
                            (when since
-                             (setf sync-route (format nil "/sync?timeout=30000&since=~a" since)))
+                             (setf sync-route (format nil "/sync?timeout=~a&since=~a" timeout since)))
                            (let* ((response (request obj sync-route :get))
                                   (rooms-join (hash-get response '("rooms" "join"))))
                              (when rooms-join (loop for room-id being each hash-key of rooms-join

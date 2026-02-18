@@ -2,7 +2,8 @@
   :version "0.0.1"
   :author "Andrei Șova"
   :license "MIT"
-  :depends-on (:com.inuoe.jzon
+  :depends-on (:mapi
+               :com.inuoe.jzon
                :dexador
                :bordeaux-threads
                :cl-hash-util
@@ -12,8 +13,7 @@
                :xmls)
   :components ((:module "src"
                 :components
-                ((:file "api")
-                 (:file "main" :depends-on ("api")))))
+                ((:file "main"))))
   :description "A bot for nullring on matrix"
   :in-order-to ((test-op (test-op "nullbot/tests"))))
 
