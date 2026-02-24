@@ -25,6 +25,9 @@
     :initform (bt2:make-lock)
     :reader lock)))
 
+(defclass matrix-bot (matrix-client) ()
+  (:default-initargs :name "matrix-bot"))
+
 ;; these are not perfect functions by any means but matrix has
 ;; many different room versions with different formats
 ;; this is what the official matrix-bot-sdk does as well
@@ -44,12 +47,9 @@
 (deftype room-alias ()
   '(and string (satisfies room-alias-p)))
 
-(defclass matrix-bot (matrix-client) ()
-  (:default-initargs :name "matrix-bot"))
-
 (defgeneric request (obj endpoint &rest rest)
   (:documentation
-   "Make an http request to a Matrix homeserver
+   "Make an http/https request to a Matrix homeserver
 
 Syntax: (REQUEST obj endpoint METHOD data headers)
 
@@ -59,18 +59,25 @@ Syntax: (REQUEST obj endpoint METHOD data headers)
 `data` is a hash table, which will be sent as json
 `headers` is an alist containing additional headers to be sent.
 
-Usually with :post or :put you want to send the application/json content-type")
-  (:method ((obj matrix-client) endpoint &rest rest &aux (headers))
-    (declare (type string endpoint))
+When :post or :put are used, the application/json content-type is set automatically.
 
+In most cases there are wrapper methods for endpoints you would want to call. Only use
+this method when there isn't a wrapper function available for your endpoint.")
+  (:method ((obj matrix-client) endpoint &rest rest &aux
+                                                      (headers)
+                                                      (method (car rest))
+                                                      (content (jzon:stringify (cadr rest))))
+    (declare (type string endpoint))
+    (when (member method '(:put :post))
+      (push '("Content-Type" . "application/json") headers))
     (when (>= (length rest) 3) (setf headers (car (last rest))))
     (bt2:with-lock-held ((lock obj))
       (push `("Authorization" . ,(format nil "Bearer ~a" (token obj))) headers))
     (jzon:parse (dexador:request (format nil "https://~a/_matrix/client/v3~a"
                                          (homeserver obj) endpoint)
                                  :headers headers
-                                 :method (car rest)
-                                 :content (jzon:stringify (cadr rest))
+                                 :method method
+                                 :content content
                                  :verbose nil))))
 
 (defgeneric on-event (obj event room-id)
@@ -102,24 +109,26 @@ This can be used to map a room alias to an ID, or get a list of homeservers that
              :get)))
 
 (defgeneric join (obj room)
-  (:documentation)
-  (:document)
+  (:documentation "Run a /_matrix/client/v3/join request, returning the resulting hash table
+
+This can be used to join matrix rooms.")
   (:method ((obj matrix-client) room)
     (request obj (format nil "/join/~a"
                          (quri:url-encode room))
              :post
-             (make-hash-table)
-             '(("Content-Type" . "application/json")))))
+             (make-hash-table))))
 
 (defgeneric sync (obj &key timeout since)
-  (:method ((obj matrix-client) &key timeout since
+  (:method ((obj matrix-client) &key timeout since set-presence
             &aux (params))
-    (check-type timeout integer)
-    (check-type since integer)
+    (declare (type integer timeout))
+    (declare (type string since))
     (when timeout
       (push '("timeout" . timeout) params))
     (when since
       (push '("since" . since) params))
+    (when set-presence
+      (push '("set_presence" . set-presence) params))
     (request obj (format nil "/sync?~a"
                          (quri:url-encode-params params))
              :get)))

@@ -23,7 +23,8 @@
    #:room-id))
 
 (defpackage org.rm-r.mapi.commands
-  (:use #:cl)
+  (:use #:cl
+        #:cl-hash-util)
   (:local-nicknames
    (#:mapi #:org.rm-r.mapi)))
 
