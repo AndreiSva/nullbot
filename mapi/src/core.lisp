@@ -14,7 +14,11 @@
    (listening
     :type boolean
     :initform nil
-    :accessor listening)
+    :accessor listening-p)
+   (shutting-down
+    :type boolean
+    :initform nil
+    :accessor shutting-down-p)
    (token
     :type string
     :initarg :token
@@ -118,7 +122,7 @@ This can be used to join matrix rooms.")
              :post
              (make-hash-table))))
 
-(defgeneric sync (obj &key timeout since)
+(defgeneric sync (obj &key timeout since set-presence)
   (:method ((obj matrix-client) &key timeout since set-presence
             &aux (params))
     (declare (type integer timeout))
@@ -152,24 +156,25 @@ This can be used to join matrix rooms.")
 
 (defgeneric start (obj)
   (:method ((obj matrix-client))
-    (unless (listening obj)
-      (setf (listening obj) t)
+    (unless (or (listening-p obj) (shutting-down-p obj))
+      (setf (listening-p obj) t)
       (bt2:make-thread (lambda (&aux
-                                  (since)
-                                  ;; TODO: support a configurable timeout
-                                  (timeout 30000)
-                                  (sync-route (format nil "/sync?timeout=~a" timeout)))
-                         (loop while (bt2:with-lock-held ((lock obj)) (listening obj)) do
-                           (when since
-                             (setf sync-route (format nil "/sync?timeout=~a&since=~a" timeout since)))
-                           (let* ((response (request obj sync-route :get))
+                                  (since))
+                         (loop while (bt2:with-lock-held ((lock obj)) (listening-p obj)) do
+                           (let* ((response (sync obj
+                                                  :timeout 30000
+                                                  :since since
+                                                  :set-presence "online"))
                                   (rooms-join (hash-get response '("rooms" "join"))))
                              (when rooms-join (loop for room-id being each hash-key of rooms-join
                                                     do (when since (get-events obj rooms-join room-id))))
                              (setf since (gethash "next_batch" response))))
-                         (format t "Shutting down...~%"))
+                         (v:log :info :matrix-api  "Shutting down...")
+                         (setf (shutting-down-p obj) t))
                        :name (format nil "~a Poll Thread" (name obj))))))
 
 (defgeneric stop (obj)
   (:method ((obj matrix-client))
-    (bt2:with-lock-held ((lock obj)) (setf (listening obj) nil))))
+    (bt2:with-lock-held ((lock obj))
+      (setf (listening-p obj) nil)
+      (setf (shutting-down-p obj) t))))
