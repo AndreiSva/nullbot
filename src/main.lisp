@@ -84,7 +84,7 @@
     (format str "~s" entries)))
 
 (defun feed-thread ()
-  (loop while (bt2:with-lock-held ((mapi:lock *bot*)) (mapi:listening *bot*)) do
+  (loop while (bt2:with-lock-held ((mapi:lock *bot*)) (mapi:listening-p *bot*)) do
     (format t "Doing another poll~%")
     (let* ((feed-str (dex:get +feed-url+))
            (xmlobj (xmls:parse feed-str))

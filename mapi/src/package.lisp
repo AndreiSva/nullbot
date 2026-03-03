@@ -8,7 +8,7 @@
    #:matrix-user
    #:homeserver
    #:name
-   #:listening
+   #:listening-p
    #:token
    #:lock
    #:matrix-client

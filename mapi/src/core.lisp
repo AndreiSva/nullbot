@@ -70,19 +70,30 @@ this method when there isn't a wrapper function available for your endpoint.")
   (:method ((obj matrix-client) endpoint &rest rest &aux
                                                       (headers)
                                                       (method (car rest))
-                                                      (content (jzon:stringify (cadr rest))))
+                                                      (content (jzon:stringify (cadr rest)))
+                                                      (max-tries 3))
     (declare (type string endpoint))
     (when (member method '(:put :post))
       (push '("Content-Type" . "application/json") headers))
     (when (>= (length rest) 3) (setf headers (car (last rest))))
     (bt2:with-lock-held ((lock obj))
       (push `("Authorization" . ,(format nil "Bearer ~a" (token obj))) headers))
-    (jzon:parse (dexador:request (format nil "https://~a/_matrix/client/v3~a"
-                                         (homeserver obj) endpoint)
-                                 :headers headers
-                                 :method method
-                                 :content content
-                                 :verbose nil))))
+
+    (loop for try from 1 to max-tries do
+      (handler-case
+          (progn
+            (return (jzon:parse (dexador:request (format nil "https://~a/_matrix/client/v3~a"
+                                                         (homeserver obj) endpoint)
+                                                 :headers headers
+                                                 :method method
+                                                 :content content
+                                                 :verbose nil))))
+        ;; something has gone wrong... we should probably try again a few times
+        ;; log the error and we will continue
+        (error (c)
+          (sleep 1)
+          (v:log :error :org.rm-r.mapi c)
+          (v:log :debug :org.rm-r.mapi (format nil "request failed, retrying ~a/~a" try max-tries)))))))
 
 (defgeneric on-event (obj event room-id)
   (:documentation
@@ -125,14 +136,12 @@ This can be used to join matrix rooms.")
 (defgeneric sync (obj &key timeout since set-presence)
   (:method ((obj matrix-client) &key timeout since set-presence
             &aux (params))
-    (declare (type integer timeout))
-    (declare (type string since))
     (when timeout
-      (push '("timeout" . timeout) params))
+      (push `("timeout" . ,timeout) params))
     (when since
-      (push '("since" . since) params))
+      (push `("since" . ,since) params))
     (when set-presence
-      (push '("set_presence" . set-presence) params))
+      (push `("set_presence" . ,set-presence) params))
     (request obj (format nil "/sync?~a"
                          (quri:url-encode-params params))
              :get)))
@@ -169,7 +178,7 @@ This can be used to join matrix rooms.")
                              (when rooms-join (loop for room-id being each hash-key of rooms-join
                                                     do (when since (get-events obj rooms-join room-id))))
                              (setf since (gethash "next_batch" response))))
-                         (v:log :info :matrix-api  "Shutting down...")
+                         (v:log :info :org.rm-r.mapi  "Shutting down...")
                          (setf (shutting-down-p obj) t))
                        :name (format nil "~a Poll Thread" (name obj))))))
 
