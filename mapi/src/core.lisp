@@ -36,14 +36,15 @@
   ((data
     :type hash-table
     :initarg :data
-    :initform (make-hash-table :test #'equaL)
+    :initform (make-hash-table :test #'equal)
     :accessor data)))
 
 (defun make-event (&optional init-table room-id &aux (e (make-instance 'event)))
   (setf (data e) init-table)
   (when room-id
     (check-type room-id room-id)
-    (setf (gethash "room_id" e) room-id)))
+    (setf (gethash "room_id" (data e)) room-id))
+  e)
 
 (defgeneric event-get (obj &rest rest)
   (:documentation "Get some data from an event. Returns nil if a given path is not in the event")
@@ -186,7 +187,7 @@ This can be used to join matrix rooms.")
 (defgeneric trigger-event-hooks (obj events)
   (:method ((obj matrix-client) events)
     (when events
-      (loop for event across events do
+      (loop for event in events do
         (on-event obj event)))))
 
 (defun find-events (table &key key)
@@ -194,10 +195,11 @@ This can be used to join matrix rooms.")
   (when (hash-table-p table)
     (loop for key being the hash-keys in table
             using (hash-value value)
-          if (hash-table-p value)
-            append (find-events value :key key)
-          else
-            collect (make-event value (when (room-id-p key) key)))))
+          if (and (hash-table-p value)
+                  (gethash "event_id" value))
+            (make-event value (when (room-id-p key) key))
+          else if (hash-table-p value)
+            append (find-events value :key key))))
 
 (defgeneric sync-loop (obj)
   (:method ((obj matrix-client)
@@ -210,8 +212,7 @@ This can be used to join matrix rooms.")
                              :set-presence "online"))
              (events-list (find-events response)))
         (when since
-          (loop for events-vector in events-list
-                do (trigger-event-hooks obj events-list)))
+          (trigger-event-hooks obj events-list))
         (setf since (gethash "next_batch" response))))
     (setf (shutting-down-p obj) nil)))
 
@@ -227,7 +228,7 @@ This can be used to join matrix rooms.")
 
     (unless (or listening shutting-down)
       (bt2:with-lock-held ((lock obj)) (setf (listening-p obj) t))
-      (bt2:make-thread #'sync-loop
+      (bt2:make-thread (lambda () (sync-loop obj))
                        :name (format nil "~a Poll Thread" (name obj))))))
 
 (defgeneric stop (obj)
