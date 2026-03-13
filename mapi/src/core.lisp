@@ -32,6 +32,29 @@
 (defclass matrix-bot (matrix-client) ()
   (:default-initargs :name "matrix-bot"))
 
+(defclass event ()
+  ((data
+    :type hash-table
+    :initarg :data
+    :initform (make-hash-table :test #'equaL)
+    :accessor data)))
+
+(defun make-event (&optional init-table room-id &aux (e (make-instance 'event)))
+  (setf (data e) init-table)
+  (when room-id
+    (check-type room-id room-id)
+    (setf (gethash "room_id" e) room-id)))
+
+(defgeneric event-get (obj &rest rest)
+  (:documentation "Get some data from an event. Returns nil if a given path is not in the event")
+  (:method ((obj event) &rest rest)
+    (hash-get (data obj) rest)))
+
+(defgeneric id (obj)
+  (:documentation "Returns a string containing the ID of a given event")
+  (:method ((obj event))
+    (event-get obj "event_id")))
+
 ;; these are not perfect functions by any means but matrix has
 ;; many different room versions with different formats
 ;; this is what the official matrix-bot-sdk does as well
@@ -95,14 +118,19 @@ this method when there isn't a wrapper function available for your endpoint.")
           (v:log :error :org.rm-r.mapi c)
           (v:log :debug :org.rm-r.mapi (format nil "request failed, retrying ~a/~a" try max-tries)))))))
 
-(defgeneric on-event (obj event room-id)
+(defgeneric on-sync (obj sync-data)
+  (:documentation
+   "Runs whenever a sync is completed")
+  (:method ((obj matrix-client) sync-data)))
+
+(defgeneric on-event (obj event)
   (:documentation
    "Method that triggers every time an event is received via /sync.
 
 Does not run for the first call to /sync.
 
 You can use this to build your own architecture for listening for events.")
-  (:method ((obj matrix-client) event room-id)
+  (:method ((obj matrix-client) event)
     (format t "Event Received: ~a~%" event)))
 
 (defgeneric whoami (obj)
@@ -142,9 +170,11 @@ This can be used to join matrix rooms.")
       (push `("since" . ,since) params))
     (when set-presence
       (push `("set_presence" . ,set-presence) params))
-    (request obj (format nil "/sync?~a"
-                         (quri:url-encode-params params))
-             :get)))
+    (let ((result (request obj (format nil "/sync?~a"
+                                       (quri:url-encode-params params))
+                           :get)))
+      (on-sync obj result)
+      result)))
 
 (defgeneric leave (obj room-id)
   (:method ((obj matrix-client) room-id)
@@ -153,36 +183,58 @@ This can be used to join matrix rooms.")
                          (quri:url-encode room-id))
              :post)))
 
-(defgeneric get-events (obj rooms-join room-id)
-  (:method ((obj matrix-client) rooms-join room-id
-            &aux
-              (room-table (gethash room-id rooms-join))
-              (events
-               (hash-get room-table '("timeline" "events"))))
+(defgeneric trigger-event-hooks (obj events)
+  (:method ((obj matrix-client) events)
     (when events
       (loop for event across events do
-        (on-event obj event room-id)))))
+        (on-event obj event)))))
+
+(defun find-events (table &key key)
+  "we traverse a hash table and return a flat list of events"
+  (when (hash-table-p table)
+    (loop for key being the hash-keys in table
+            using (hash-value value)
+          if (hash-table-p value)
+            append (find-events value :key key)
+          else
+            collect (make-event value (when (room-id-p key) key)))))
+
+(defgeneric sync-loop (obj)
+  (:method ((obj matrix-client)
+            &aux
+              (since))
+    (loop while (bt2:with-lock-held ((lock obj)) (listening-p obj)) do
+      (let* ((response (sync obj
+                             :timeout 30000
+                             :since since
+                             :set-presence "online"))
+             (events-list (find-events response)))
+        (when since
+          (loop for events-vector in events-list
+                do (trigger-event-hooks obj events-list)))
+        (setf since (gethash "next_batch" response))))
+    (setf (shutting-down-p obj) nil)))
 
 (defgeneric start (obj)
-  (:method ((obj matrix-client))
-    (unless (or (listening-p obj) (shutting-down-p obj))
-      (setf (listening-p obj) t)
-      (bt2:make-thread (lambda (&aux
-                                  (since))
-                         (loop while (bt2:with-lock-held ((lock obj)) (listening-p obj)) do
-                           (let* ((response (sync obj
-                                                  :timeout 30000
-                                                  :since since
-                                                  :set-presence "online"))
-                                  (rooms-join (hash-get response '("rooms" "join"))))
-                             (when rooms-join (loop for room-id being each hash-key of rooms-join
-                                                    do (when since (get-events obj rooms-join room-id))))
-                             (setf since (gethash "next_batch" response))))
-                         (v:log :info :org.rm-r.mapi  "Shutting down...")
-                         (setf (shutting-down-p obj) t))
+  (:documentation "Start a matrix-client by starting its listening loop")
+  (:method ((obj matrix-client) &aux
+                                  (listening)
+                                  (shutting-down))
+
+    (bt2:with-lock-held ((lock obj))
+      (setf listening (listening-p obj))
+      (setf shutting-down (shutting-down-p obj)))
+
+    (unless (or listening shutting-down)
+      (bt2:with-lock-held ((lock obj)) (setf (listening-p obj) t))
+      (bt2:make-thread #'sync-loop
                        :name (format nil "~a Poll Thread" (name obj))))))
 
 (defgeneric stop (obj)
+  (:documentation "Stop a matrix-client
+
+Note that it will not shut down immediately, but rather this method sets a signal which
+will cause the the matrix-client to shut down after it has finished its last sync loop.")
   (:method ((obj matrix-client))
     (bt2:with-lock-held ((lock obj))
       (setf (listening-p obj) nil)

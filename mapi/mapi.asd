@@ -7,9 +7,8 @@
                :bordeaux-threads
                :cl-hash-util
                :quri
-               :flexi-streams
                :split-sequence
-               :verbose)
+               :flexi-streams)
   :components ((:module "src"
                 :components
                 ((:file "package")

@@ -2,8 +2,7 @@
   (:use #:cl
         #:cl-hash-util)
   (:local-nicknames
-   (#:jzon #:com.inuoe.jzon)
-   (#:v #:org.shirakumo.verbose))
+   (#:jzon #:com.inuoe.jzon))
   (:export
    #:matrix-user
    #:homeserver
