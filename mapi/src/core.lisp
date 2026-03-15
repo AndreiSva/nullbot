@@ -37,13 +37,15 @@
     :type hash-table
     :initarg :data
     :initform (make-hash-table :test #'equal)
-    :accessor data)))
+    :accessor data)
+   (room-id
+    :type string
+    :initarg :room-id
+    :accessor room-id)))
 
 (defun make-event (&optional init-table room-id &aux (e (make-instance 'event)))
   (setf (data e) init-table)
-  (when room-id
-    (check-type room-id room-id)
-    (setf (gethash "room_id" (data e)) room-id))
+  (setf (room-id e) room-id)
   e)
 
 (defgeneric event-get (obj &rest rest)
@@ -117,7 +119,11 @@ this method when there isn't a wrapper function available for your endpoint.")
         (error (c)
           (sleep 1)
           (v:log :error :org.rm-r.mapi c)
-          (v:log :debug :org.rm-r.mapi (format nil "request failed, retrying ~a/~a" try max-tries)))))))
+          (v:log :debug :org.rm-r.mapi (format nil "request failed, retrying ~a/~a" try max-tries))
+
+          ;; we tried our best
+          (when (= try max-tries)
+            (signal c)))))))
 
 (defgeneric on-sync (obj sync-data)
   (:documentation
@@ -190,16 +196,26 @@ This can be used to join matrix rooms.")
       (loop for event in events do
         (on-event obj event)))))
 
-(defun find-events (table &key key)
+(defun find-events (table &key parent-room-id)
   "we traverse a hash table and return a flat list of events"
-  (when (hash-table-p table)
-    (loop for key being the hash-keys in table
-            using (hash-value value)
-          if (and (hash-table-p value)
-                  (gethash "event_id" value))
-            (make-event value (when (room-id-p key) key))
-          else if (hash-table-p value)
-            append (find-events value :key key))))
+  ;; TODO: It might be a good idea to hard-code the schema of /sync instead of
+  ;; doing this heuristic approach
+  (cond
+    ((hash-table-p table)
+     (if (gethash "event_id" table)
+         (list (make-event table parent-room-id))
+         (loop for key being the hash-keys in table
+                 using (hash-value value)
+               for room-id-to-use = (or parent-room-id
+                                        (when (room-id-p key)
+                                          key))
+               if (hash-table-p value)
+                 append (find-events value :parent-room-id room-id-to-use)
+               else if (and (vectorp value) (not (stringp value)))
+                      append (find-events value :parent-room-id room-id-to-use))))
+    ((and (vectorp table)
+          (not (stringp table)))
+     (loop for item across table append (find-events item :parent-room-id parent-room-id)))))
 
 (defgeneric sync-loop (obj)
   (:method ((obj matrix-client)
