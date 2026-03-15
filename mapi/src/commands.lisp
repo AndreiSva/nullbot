@@ -19,8 +19,8 @@
 
 (defmethod on-event ((obj matrix-command-bot) event room-id
                      &aux
-                       (msgtype (gethash "type" event))
-                       (sender (gethash "sender" event)))
+                       (msgtype (event-get event "type"))
+                       (sender (event-get event "sender")))
   (when (string= msgtype "m.room.message")
     (let* ((body (hash-get event '("content" "body")))
            (prefix-length (length (prefix obj))))

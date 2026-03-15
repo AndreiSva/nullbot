@@ -197,9 +197,10 @@ This can be used to join matrix rooms.")
         (on-event obj event)))))
 
 (defun find-events (table &key parent-room-id)
-  "we traverse a hash table and return a flat list of events"
+  "Traverse a Matrix /sync response and return a flat list of event objects found."
   ;; TODO: It might be a good idea to hard-code the schema of /sync instead of
-  ;; doing this heuristic approach
+  ;; doing this heuristic approach. Right now we do it because it's more terse and
+  ;; possibly somewhat resilient to API changes.
   (cond
     ((hash-table-p table)
      (if (gethash "event_id" table)

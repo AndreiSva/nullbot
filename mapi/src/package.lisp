@@ -12,14 +12,30 @@
    #:lock
    #:matrix-client
    #:matrix-bot
+
    #:on-event
+   #:on-sync
    #:start
    #:stop
    #:whoami
    #:request
    #:join
    #:leave
-   #:room-id))
+   #:directory-room
+   #:sync
+
+   #:event
+   #:data
+   #:make-event
+   #:event-get
+   #:id
+   #:find-events
+
+   #:room-id
+   #:room-id-p
+
+   #:room-alias
+   #:room-alias-p))
 
 (defpackage org.rm-r.mapi.commands
   (:use #:cl
