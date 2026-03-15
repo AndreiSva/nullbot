@@ -118,9 +118,6 @@ this method when there isn't a wrapper function available for your endpoint.")
         ;; log the error and we will continue
         (error (c)
           (sleep 1)
-          (v:log :error :org.rm-r.mapi c)
-          (v:log :debug :org.rm-r.mapi (format nil "request failed, retrying ~a/~a" try max-tries))
-
           ;; we tried our best
           (when (= try max-tries)
             (signal c)))))))

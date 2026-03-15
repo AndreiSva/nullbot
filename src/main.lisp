@@ -45,13 +45,13 @@
        (sendmsg *bot* room-id (format nil "It's ~a degrees in Vancouver~%It's ~a degrees in Victoria" (get-temp "YVR") (get-temp "YYJ")))))))
 
 (defmethod mapi:on-event
-    ((obj nullbot) event room-id
+    ((obj nullbot) event
      &aux
-       (msgtype (gethash "type" event))
-       (sender (gethash "sender" event)))
+       (msgtype (event-get event "type"))
+       (sender (event-get event "sender")))
   (cond
     ((string= msgtype "m.room.message")
-     (process-roommsg (gethash "content" event) room-id sender))))
+     (process-roommsg (event-get event "content") (room-id event) sender))))
 
 (defun node-val (obj)
   (car (xmls:node-children obj)))
