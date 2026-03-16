@@ -43,6 +43,22 @@
     :initarg :room-id
     :accessor room-id)))
 
+(define-condition matrix-error (error)
+  ((errcode
+    :type string
+    :initarg :errcode
+    :initform nil
+    :reader errcode)
+   (err
+    :type string
+    :initarg :error
+    :initform nil
+    :reader err))
+  (:report (lambda (condition stream)
+             (format stream "The matrix homeserver has returned an error: ~a: ~a~%"
+                     (errcode condition)
+                     (err condition)))))
+
 (defun make-event (&optional init-table room-id &aux (e (make-instance 'event)))
   (setf (data e) init-table)
   (setf (room-id e) room-id)
@@ -114,6 +130,14 @@ this method when there isn't a wrapper function available for your endpoint.")
                                                  :method method
                                                  :content content
                                                  :verbose nil))))
+        (dexador.error:http-request-failed (c)
+          (let* ((body (dexador.error:response-body c))
+                 (json-body (jzon:parse body)))
+            (if json-body
+                (error 'matrix-error
+                       :errcode (gethash "errcode" json-body)
+                       :error (gethash "error" json-body))
+              (signal c))))
         ;; something has gone wrong... we should probably try again a few times
         ;; log the error and we will continue
         (error (c)
