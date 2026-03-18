@@ -6,11 +6,12 @@
     :initarg :homeserver
     :initform "matrix.org"
     :reader homeserver)
-   (name
+   (username
     :type string
-    :initarg :name
-    :initform "matrix-user"
-    :reader name)
+    :initarg :username
+    :initform ""
+    :reader username
+    :documentation "Contains the localpart of the matrix username of the client")
    (listening
     :type boolean
     :initform nil
@@ -23,14 +24,13 @@
     :type string
     :initarg :token
     :initform ""
-    :reader token)
+    :accessor token)
    (lock
     :type bt2:lock
     :initform (bt2:make-lock)
     :reader lock)))
 
-(defclass matrix-bot (matrix-client) ()
-  (:default-initargs :name "matrix-bot"))
+(defclass matrix-bot (matrix-client) ())
 
 (defclass event ()
   ((data
@@ -41,7 +41,11 @@
    (room-id
     :type string
     :initarg :room-id
-    :accessor room-id)))
+    :accessor room-id)
+   (type
+    :type string
+    :initarg :type
+    :accessor event-type)))
 
 (define-condition matrix-error (error)
   ((errcode
@@ -59,9 +63,10 @@
                      (errcode condition)
                      (err condition)))))
 
-(defun make-event (&optional init-table room-id &aux (e (make-instance 'event)))
+(defun make-event (&optional init-table room-id event-type &aux (e (make-instance 'event)))
   (setf (data e) init-table)
   (setf (room-id e) room-id)
+  (setf (event-type e) event-type)
   e)
 
 (defgeneric event-get (obj &rest rest)
@@ -101,14 +106,18 @@ Syntax: (REQUEST obj endpoint METHOD data headers)
 
 `endpoint` is a string path containing the matrix endpoint WITHOUT the protocol,
            hostname, and /_matrix/client/v3
-`METHOD` is a symbol (e.g :get, :post, :put) that represents the HTTP method to be used
-`data` is a hash table, which will be sent as json
+
+`METHOD` is a symbol (e.g :get, :post, :put) that represents the HTTP method to
+be used `data` is a hash table, which will be sent as json
+
 `headers` is an alist containing additional headers to be sent.
 
-When :post or :put are used, the application/json content-type is set automatically.
+When :post or :put are used, the application/json content-type is set
+automatically.
 
-In most cases there are wrapper methods for endpoints you would want to call. Only use
-this method when there isn't a wrapper function available for your endpoint.")
+In most cases there are wrapper methods for endpoints you would want to
+call. Only use this method when there isn't a wrapper function available for
+your endpoint.")
   (:method ((obj matrix-client) endpoint &rest rest &aux
                                                       (headers)
                                                       (method (car rest))
@@ -171,7 +180,8 @@ You can use this to build your own architecture for listening for events.")
   (:documentation
    "Run a /_matrix/client/v3/directory/room request, returning the resulting hash table
 
-This can be used to map a room alias to an ID, or get a list of homeservers that have the specific room.")
+This can be used to map a room alias to an ID, or get a list of homeservers that
+have the specific room.")
   (:method ((obj matrix-client) room-alias)
     (check-type room-alias room-alias)
     (request obj
@@ -205,11 +215,66 @@ This can be used to join matrix rooms.")
       result)))
 
 (defgeneric leave (obj room-id)
+  (:documentation "Run a /_matrix/client/v3/rooms/<room-id>/leave request.
+
+This will cause the associated account of the matrix client to leave the
+specified room.")
   (:method ((obj matrix-client) room-id)
     (check-type room-id room-id)
     (request obj (format nil "/rooms/~a/leave"
                          (quri:url-encode room-id))
              :post)))
+
+;; TODO: implement other kinds of auth such as thirdparty auth and phone auth
+(defgeneric login (obj &key token password user thirdparty phone device-id initial-device-display-name)
+  (:documentation "Login to a matrix homeserver.
+
+Returns a hash table with some information from the server after the login.
+
+This method will populate the TOKEN slot of the matrix-client object, or signal
+a condition of type matrix-error. Note that this uses the legacy
+/_matrix/client/v3/login endpoint.
+
+Passing in USER as any non-nil value will cause the authentication to happen
+using the client object's USERNAME slot.
+
+If both TOKEN and PASSWORD are passed, token authentification will be used.")
+  (:method ((obj matrix-client)
+            &key
+              token
+              password
+              user
+
+              ;; currently no-op
+              thirdparty
+              phone
+
+              device-id
+              initial-device-display-name
+            &aux (data (make-hash-table)))
+
+    (when initial-device-display-name
+      (setf (gethash "initial_device_display_name" data) initial-device-display-name))
+
+    (cond
+      (token
+       (setf (gethash "type" data) "m.login.token")
+       (setf (gethash "token" data) token))
+      (password
+       (setf (gethash "type" data) "m.login.password")
+       (setf (gethash "password" data) password)))
+
+    (let ((user-identifier (make-hash-table)))
+      (when user
+        (setf (gethash "type" user-identifier) "m.id.user")
+        (setf (gethash "user" user-identifier) (bt2:with-lock-held ((lock obj))
+                                                 (username obj))))
+      (setf (gethash "identifier" data) user-identifier))
+
+    (let ((response (request obj "/login" :post data)))
+      (bt2:with-lock-held ((lock obj))
+        (setf (token obj) (gethash "access_token" response)))
+      response)))
 
 (defgeneric trigger-event-hooks (obj events)
   (:method ((obj matrix-client) events)
@@ -217,27 +282,23 @@ This can be used to join matrix rooms.")
       (loop for event in events do
         (on-event obj event)))))
 
-(defun find-events (table &key parent-room-id)
+(defun find-events (table &key parent-room-id event-type)
   "Traverse a Matrix /sync response and return a flat list of event objects found."
-  ;; TODO: It might be a good idea to hard-code the schema of /sync instead of
-  ;; doing this heuristic approach. Right now we do it because it's more terse and
-  ;; possibly somewhat resilient to API changes.
-  (cond
-    ((hash-table-p table)
-     (if (gethash "event_id" table)
-         (list (make-event table parent-room-id))
-         (loop for key being the hash-keys in table
-                 using (hash-value value)
-               for room-id-to-use = (or parent-room-id
-                                        (when (room-id-p key)
-                                          key))
-               if (hash-table-p value)
-                 append (find-events value :parent-room-id room-id-to-use)
-               else if (and (vectorp value) (not (stringp value)))
-                      append (find-events value :parent-room-id room-id-to-use))))
-    ((and (vectorp table)
-          (not (stringp table)))
-     (loop for item across table append (find-events item :parent-room-id parent-room-id)))))
+  (when (hash-table-p table)
+    (loop for key being the hash-keys in table
+            using (hash-value value)
+          for room-id-to-use = (or parent-room-id
+                                   (when (room-id-p key)
+                                     key))
+          if (hash-table-p value)
+            append (find-events value
+                                :parent-room-id room-id-to-use
+                                :event-type key)
+          else if (and (and (vectorp value) (not (stringp value)))
+                       (string= "events" key))
+                 append (map 'list (lambda (event-table)
+                                     (make-event event-table parent-room-id event-type))
+                             value))))
 
 (defgeneric sync-loop (obj)
   (:method ((obj matrix-client)

@@ -6,7 +6,7 @@
   (:export
    #:matrix-user
    #:homeserver
-   #:name
+   #:username
    #:listening-p
    #:token
    #:lock
@@ -19,6 +19,7 @@
    #:stop
    #:whoami
    #:request
+   #:login
    #:join
    #:leave
    #:directory-room
