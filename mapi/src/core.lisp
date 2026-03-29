@@ -297,7 +297,10 @@ If both TOKEN and PASSWORD are passed, token authentification will be used.")
           else if (and (and (vectorp value) (not (stringp value)))
                        (string= "events" key))
                  append (map 'list (lambda (event-table)
-                                     (make-event event-table parent-room-id event-type))
+                                     (make-instance 'event
+                                                    :data event-table
+                                                    :room-id parent-room-id
+                                                    :type event-type))
                              value))))
 
 (defgeneric sync-loop (obj)
@@ -328,7 +331,7 @@ If both TOKEN and PASSWORD are passed, token authentification will be used.")
     (unless (or listening shutting-down)
       (bt2:with-lock-held ((lock obj)) (setf (listening-p obj) t))
       (bt2:make-thread (lambda () (sync-loop obj))
-                       :name (format nil "~a Poll Thread" (name obj))))))
+                       :name (format nil "~a Poll Thread" (username obj))))))
 
 (defgeneric stop (obj)
   (:documentation "Stop a matrix-client
