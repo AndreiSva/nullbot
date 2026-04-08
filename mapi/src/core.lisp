@@ -78,21 +78,26 @@
                    value)
         finally (return table)))
 
-(defun make-event (&optional init-plist room-id)
-  "Construct an event object from INIT-PLIST
-
-INIT-PLIST is a plist containing the recursive structure that defines the Matrix event"
-  (let* ((init-table (event-plist-hash-table init-plist))
-         (type))
-
-    ;; type field is mandatory
-    (setf type (gethash "type" init-table))
-    (setf (gethash "type" init-table) nil)
-
+(defgeneric make-event (from &optional room-id type)
+  (:documentation "Construct an event object")
+  (:method ((from list) &optional room-id type)
+    "FROM is a plist containing the recursive structure that defines the Matrix event"
+    (let* ((init-table (event-plist-hash-table from)))
+      (make-instance 'event
+                     :data init-table
+                     :room-id room-id
+                     :type type)))
+  (:method ((from hash-table) &optional room-id type)
+    "FROM is a hash table containing the recursive structure that defines the Matrix
+event"
     (make-instance 'event
-                   :data init-table
-                   :room-id room-id
-                   :type type)))
+                   :data from
+                   :type type
+                   :room-id room-id))
+  (:method ((from string) &optional room-id type)
+    "FROM is a string containing JSON containing the recursive structure that defines
+the Matrix event"
+    (make-event (jzon:parse from) room-id type)))
 
 (defgeneric event-get (obj &rest rest)
   (:documentation "Get some data from an event. Returns nil if a given path is not in the event")
