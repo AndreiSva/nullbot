@@ -63,11 +63,36 @@
                      (errcode condition)
                      (err condition)))))
 
-(defun make-event (&optional init-table room-id event-type &aux (e (make-instance 'event)))
-  (setf (data e) init-table)
-  (setf (room-id e) room-id)
-  (setf (event-type e) event-type)
-  e)
+(defun event-plist-hash-table (event-plist)
+  (loop for (key value) on event-plist by #'cddr
+        with table = (make-hash-table :test #'equal)
+        if (typep value 'list)
+          do (setf (gethash
+                    (string-downcase (symbol-name key))
+                    table)
+                   (event-plist-hash-table value))
+        else
+          do (setf (gethash
+                    (string-downcase (symbol-name key))
+                    table)
+                   value)
+        finally (return table)))
+
+(defun make-event (&optional init-plist room-id)
+  "Construct an event object from INIT-PLIST
+
+INIT-PLIST is a plist containing the recursive structure that defines the Matrix event"
+  (let* ((init-table (event-plist-hash-table init-plist))
+         (type))
+
+    ;; type field is mandatory
+    (setf type (gethash "type" init-table))
+    (setf (gethash "type" init-table) nil)
+
+    (make-instance 'event
+                   :data init-table
+                   :room-id room-id
+                   :type type)))
 
 (defgeneric event-get (obj &rest rest)
   (:documentation "Get some data from an event. Returns nil if a given path is not in the event")
